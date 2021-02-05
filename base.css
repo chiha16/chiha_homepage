@@ -10,7 +10,7 @@ a{ text-decoration: none; color: #111111;} a:hover{ text-decoration: underline;}
 
 body {
     font-family: sans-serif;
-    background: url(img/bg_chiharisu.gif) no-repeat center center;
+    background: url(bg_chiharisu.gif) no-repeat center center;
     background-size: cover;
 }
 
