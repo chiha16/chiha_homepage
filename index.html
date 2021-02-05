@@ -1,0 +1,547 @@
+<!DOCTYPE HTML>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>チハリス！</title>
+<link rel="stylesheet" href="base.css">
+</head>
+<body>
+
+<div id="wrapper">
+    <div id="box">
+        <canvas id="canvas"></canvas>
+        <div id="cover">
+            <h1><img src="img/chiharisu.gif" width="240" height="150" alt="チハリス！"></h1>
+            <h3>お知らせ</h3>
+            <p>2020/12/11 チハリス開発開始</p>
+            <p>2020/12/13　音楽追加</p>
+            <p>2020/12/18　背景変更</p>
+            <h3>操作方法</h3>
+            <p>ブロックの移動「矢印キー」</p>
+            <p>ブロックの回転「スペースキー」</p>
+            <p id="audioBtn" align="center">BGM　on/off</p>
+            <p id="startBtn">スタート</p>
+        </div>
+        <p id="totalLine">Line: <span>0</span></p>
+        <p id="gameOver">残念ゲームオーバー!</p>
+    </div>
+</div>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
+
+<script>
+
+// ステージの値
+var block_size = 24; // 1つのブロックのサイズ
+var block_rows = 22; // ステージの行数（20行分をステージとして使用し、上下の1行ずつは当たり判定とブロック生成に使用）
+var block_cols = 12; // ステージの列
+var screen_width = block_size * block_cols; // キャンバスの幅
+var screen_height = block_size * block_rows; // キャンバスの高さ
+
+// ゲームの状態
+var GAME = 1; // ゲーム中を表す値
+var GAMEOVER = 0; // ゲームオーバー状態を表す値
+var EFFECT = 2; // ブロックを消すときのエフェクトモードを表す値
+
+// ブロックの状態
+var non_block = 0; // ブロックが存在しない状態
+var normal_block = 1; // 通常のブロック（動かせる）状態
+var lock_block = 2; // ロックしたブロック（動かせない）状態
+var clear_block = 3; // 消去するブロック（1行揃ったとき）
+var wall = 9; // 壁
+
+// エフェクトの設定
+var effect_animation = 5; // エフェクト時の点滅する回数の設定
+
+// 色の設定
+var bg_color = "#00CCFF"; // 背景色
+var gameover_color = "#ccc"; // ゲームオーバー時のブロックの色
+//var block_color = "#07c"; // 操作ブロックの色
+//配列ととして色を収納する
+var block_color = ["#f00","#ff0","#00f","#0f0"];
+var colors_num;
+/*block_color[0]
+block_color[1]
+block_color[2]
+block_color[3]*/
+var lock_color = ["#f00","#ff0","#00f","#0f0"]; // ロックしたブロックの色
+var lock_colors;
+var wall_color = ["#f00","#ff0","#00f","#0f0"]; // 壁のブロックの色
+var wall_colors;
+var error_color = "#f00"; // エラーブロックの色
+var effect_color1 = "#fff"; // エフェクト時のブロック色１
+var effect_color2 = "#000"; // エフェクト時のブロック色２
+
+// レベル上げの行数
+var next_level = 10; // 次のレベル（スピードが上がる）までの消去行数
+
+// グローバル変数
+var canvas = null; // キャンバスの取得
+var ctx = null; // コンテキストの取得
+var stage = new Array(block_rows); // ゲームのステージ枠（壁の情報のみで、変化をしない）
+var field = new Array(block_rows); // ゲーム中のステージ枠（ブロック表示用で、変化をする）
+var bs; // ブロックサイズ用の変数
+var speed; // 落下速度用の変数
+var frame; // ゲームフレーム番号用の変数
+var block = new Array(); // 落ちてくるブロックの種類（７種類）用の配列変数
+var o_block = new Array(); // 操作中のブロック用の配列変数
+var t_block = new Array(); // 回転中のブロック用の配列変数
+var block_type; // ブロックの種類番号用の変数
+var x,y; // ブロックの現在位置用の変数
+var sx,sy; // ブロックの元位置用の変数
+var mode; // ゲームの状態用の変数
+var timer; // ゲームタイマー用の変数
+var FPS; // FPS（描画書き換え速度）用の変数
+var clear_line; // 揃えた時に消去した行数用の変数
+var total_line; // 消去した行数の総数用の変数
+
+// エフェクト時に使う変数
+var effect_state = {flip: 0, speed: 0, count: 0};
+
+//ＢＧＭの設定
+var gameBgm = new Audio('sound/tetoris.mp3');
+var gameBomb = new Audio('sound/bomb.mp3');
+var audio_switch = 1;
+    
+// ゲームの初期化
+function init(){
+    clearTimeout(timer);
+    FPS = 30;
+    clear_line = 0;
+    total_line = 0;
+    
+    // キャンバスの設定
+    canvas = $('#canvas')[0];
+    canvas.width = screen_width;
+    canvas.height = screen_height;
+    ctx = canvas.getContext("2d");
+    
+    // エフェクトの設定
+    effect_state.flip = 0;
+    effect_state.speed = 4;
+    effect_state.count = 0;
+    
+    // ブロックサイズの設定
+    bs = block_size;
+    
+    // ブロックの設定
+    block = [
+        [[0,1,0,0],
+         [1,1,1,0],
+         [0,0,,0],
+         [0,0,0,0]], // ブロックの種類１（正方形型）
+        
+        [[0,1,0,0],
+         [0,1,0,0],
+         [0,1,0,0],
+         [0,0,0,0]], // ブロックの種類２（棒型）
+        
+        [[1,1,0,0],
+         [0,1,0,0],
+         [1,1,0,0],
+         [0,0,0,0]], // ブロックの種類３（凹凸型）
+        
+        [[0,1,0,0],
+         [0,1,1,0],
+         [0,0,1,0],
+         [0,0,0,0]], // ブロックの種類４（イナズマ型２）
+        
+        [[0,1,1,0],
+         [0,1,0,0],
+         [0,1,0,0],
+         [0,0,0,0]], // ブロックの種類５（Ｌ型１）
+        
+        [[0,1,1,0],
+         [0,0,1,0],
+         [0,0,1,0],
+         [0,0,0,0]], // ブロックの種類６（Ｌ型２）
+        
+        [[0,0,1,0],
+         [0,1,1,0],
+         [0,1,0,0],
+         [0,0,0,0]], // ブロックの種類７（Ｔ型）
+        
+        [[0,0,1,0],
+         [0,0,1,0],
+         [0,0,1,0],
+         [0,0,1,0]], // ブロックの種類７（Ｔ型）
+        
+        [[0,1,1,1],
+         [0,0,1,0],
+         [0,0,1,0],
+         [0,0,1,0]] // ブロックの種類７（Ｔ型）
+    ];
+    
+    // ステージの設定
+    stage = [
+        [0,0,0,0,0,0,0,0,0,0,0,0], // 当たり判定とブロック生成用の行（表示しない）
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,0,0,0,0,0,0,0,0,0,0,9],
+        [9,9,9,9,9,9,9,9,9,9,9,9],
+        [0,0,0,0,0,0,0,0,0,0,0,0] // 当たり判定とブロック生成用の行（表示しない）
+    ];
+}
+
+// ステージ設定
+function setStage(){
+    // 表示するための配列
+    wall_colors = Math.floor(Math.random()*block_color.length);
+    for(var i=0; i<block_rows; i++){
+        field[i] = [0,0,0,0,0,0,0,0,0,0,0,0];
+    }
+    
+    // 操作ブロックのための配列
+    o_block = [
+        [0,0,0,0],
+        [0,0,0,0],
+        [0,0,0,0],
+        [0,0,0,0]
+    ];
+    
+    // ステージデータをコピー
+    for(var i=0; i<block_rows; i++){
+        for(var j=0; j<block_cols; j++){
+            field[i][j] = stage[i][j];
+        }
+    }
+}
+
+// ブロックの当たり判定（移動できる？落下できる？）
+function hitCheck(){
+    if(mode == EFFECT) return;
+    for(var i=0; i<4; i++){
+        for(var j=0; j<4; j++){
+            if(field[i+y][j+x] && o_block[i][j]) return 1;
+        }
+    }
+    return 0;
+}
+
+// 新しいブロックを作成
+function createBlock(){
+    if(mode == EFFECT) return;
+    colors_num = Math.floor(Math.random()*block_color.length);
+    x = sx = Math.floor(block_cols / 3);
+    y = sy = 0;
+    block_type = Math.floor(Math.random()*block.length);
+    
+    // ブロックをコピー
+    for(var i=0; i<4; i++){
+        for(var j=0; j<4; j++){
+            o_block[i][j] = block[block_type][i][j];
+        }
+    }
+    
+    if(hitCheck()){
+       mode = GAMEOVER;
+    }
+    
+    putBlock();
+}
+
+// ブロックをステージに置く
+function putBlock(){
+    if(mode == EFFECT) return;
+    for(var i=0; i<4; i++){
+        for(var j=0; j<4; j++){
+            if(o_block[i][j]) field[i+y][j+x] = o_block[i][j];
+        }
+    }
+}
+
+// ブロックをロックする
+function lockBlock(){
+    if(mode == EFFECT) return;
+    wall_colors = Math.floor(Math.random()*block_color.length);
+    lock_colors = Math.floor(Math.random()*block_color.length);
+    for(var i=0; i<4; i++){
+        for(var j=0; j<4; j++){
+            if(o_block[i][j]) field[i+y][j+x] = lock_block;
+        }
+    }
+}
+
+// ブロックを消去する
+function clearBlock(){
+    if(mode == EFFECT) return;
+    for(var i=0; i<4; i++){
+        for(var j=0; j<4; j++){
+            if(o_block[i][j]) field[i+y][j+x] = non_block;
+        }
+    }
+}
+
+// ブロックの回転処理
+function rotateBlock(){
+    if(mode == EFFECT) return;
+    clearBlock();
+    
+    // 回転ブロック退避の配列
+    t_block = [
+        [0,0,0,0],
+        [0,0,0,0],
+        [0,0,0,0],
+        [0,0,0,0]
+    ];
+    
+    // ブロックを退避
+    for(var i=0; i<4; i++){
+        for(var j=0; j<4; j++){
+            t_block[i][j] = o_block[i][j];
+        }
+    }
+    
+    // ブロックを回転
+    for(var i=0; i<4; i++){
+        for(var j=0; j<4; j++){
+            o_block[i][j] = t_block[3-j][i];
+        }
+    }
+    
+    // 元に戻す
+    if(hitCheck()){
+       for(var i=0; i<4; i++){
+           for(var j=0; j<4; j++){
+               o_block[i][j] = t_block[i][j];
+           }
+       }
+    }
+    
+    putBlock();
+    return 0;
+}
+
+// ラインが揃ったかのチェックをする
+function lineCheck(){
+    if(mode == EFFECT) return;
+    var count;
+    var line_count = 0;
+    for(var i=1; i<block_rows-2; i++){
+        count = 0;
+        for(var j=0; j<block_cols; j++){ // 右端の列から順番に揃ったかどうかのチェックをする
+            if(field[i][j]) count++;
+            else break;
+        }
+        if(count >= block_cols){
+           line_count++;
+            clear_line++;
+            total_line++;
+            for(var j=1; j<block_cols-1; j++) field[i][j] = clear_block;
+            $('#totalLine span').text(total_line);
+        }
+    }
+    return line_count; // 消去する行数を返す
+}
+
+// 揃ったラインを消去する処理
+function deleteLine(){
+    if(mode == EFFECT) return;
+    for(var i=block_rows-1; i>=1; i--){ // 下の行から順番に消去する
+        for(var j=1; j<block_cols-1; j++){ // 右端の列から順番に消去するブロックのチェックをする
+            if(field[i][j] == clear_block){
+               field[i][j] = field[i-1][j]; // １行下げる
+                for(var above=i-1; above>=1; above--){ // 下げた行から上の行を１行ずつ下げる
+                    field[above][j] = field[above-1][j];
+                }
+                i++; // 下げた行が、さらに消去をする行だった時の処理
+            }
+        }
+    }
+}
+
+// ゲーム画面のクリア
+function clearWindow(){
+    ctx.fillStyle = bg_color;
+    ctx.fillRect(0,0,screen_width,screen_height);
+}
+
+// 描画処理
+function draw(){
+    clearWindow();
+    
+    for(var i=0; i<block_rows; i++){
+        for(var j=0; j<block_cols; j++){
+            switch(field[i][j]){
+                case non_block:
+                    ctx.fillStyle = bg_color;
+                    break;
+                case normal_block:
+                    ctx.fillStyle = block_color[colors_num];
+                    break;
+                case lock_block:
+                    ctx.fillStyle = lock_color[lock_colors];
+                    break;
+                case clear_block:
+                    ctx.fillStyle = block_color;
+                    break;
+                case wall:
+                    ctx.fillStyle = wall_color[wall_colors];
+                    break;
+                default:
+                    ctx.fillStyle = error_color;
+            }
+            ctx.fillRect(j*bs, i*bs, bs-1, bs-1); // ブロック同士の隙間を空けるために、ブロックの幅と高さから１を引いています
+        }
+    }
+}
+
+// ラインを消去する時のエフェクト
+function effect(){
+    var colors = [effect_color1,effect_color2];
+    
+    ctx.fillStyle = colors[effect_state.flip];
+    for(var i=0; i<block_rows; i++){
+        for(var j=0; j<block_cols; j++){
+            if(field[i][j] == clear_block){
+               ctx.fillRect(j*bs, i*bs, bs-1, bs-1);
+            }
+        }
+    }
+    effect_state.flip = 1-effect_state.flip;
+    
+    if(effect_state.count > effect_animation){
+       mode = GAME;
+        effect_state.count = 0;
+        effect_state.flip = 0;
+        deleteLine();
+        gameBomb.volume = 0.7;
+        gameBomb.play();
+        createBlock();
+    }
+    effect_state.count++;
+}
+
+// ゲームオーバーの処理
+function gameOver(){
+    for(var i=0; i<block_rows; i++){
+        for(var j=0; j<block_cols; j++){
+            if(field[i][j] && field[i][j] != wall){
+               ctx.fillStyle = gameover_color;
+               ctx.fillRect(j*bs, i*bs, bs-1, bs-1);
+            }
+        }
+    }
+}
+
+// ゲームのメイン動作
+function mainLoop(){
+    if(mode == GAME){
+       sx = x; // 元の横の位置を保存
+       sy = y; // 元の縦の位置を保存
+       if(frame % speed == 0){
+          clearBlock();
+          y++;
+          if(hitCheck()){
+             y = sy;
+              lockBlock();
+              if(lineCheck() > 0){
+                 mode = EFFECT;
+              }
+              createBlock();
+           }
+           putBlock();
+        }
+        draw();
+        if(audio_switch == 1){
+        gameBgm.volume = 0.5;
+        gameBgm.play();
+        };
+    } else if(mode == GAMEOVER){
+        gameOver();
+        gameBgm.pause();
+        $('#gameOver').show();
+    } else if(mode == EFFECT){
+        if(frame % effect_state.speed == 0){
+           effect();
+        }
+    }
+    frame++;
+    // 落下スピードのアップ
+    if(clear_line >= next_level){
+       clear_line = 0;
+       speed--;
+    }
+    if(speed < 1) speed = 1;
+    timer = setTimeout(mainLoop, 1000/FPS);
+}
+
+// ゲーム開始の処理
+function newGame(){
+    setStage();
+    mode = GAME;
+    frame = 1;
+    speed = 20;
+    clearTimeout(timer);
+    createBlock();
+    mainLoop();
+}
+
+// キーボードイベント
+window.onkeydown = keyDownFunc;
+
+// キー操作
+function keyDownFunc(e){
+    if(mode == EFFECT) return;
+    if(mode == GAME){
+       clearBlock();
+       sx = x;
+       sy = y;
+       if(e.keyCode == 32){
+          rotateBlock();
+       } else if(e.keyCode == 37){
+          x--;
+       } else if(e.keyCode == 39){
+          x++;
+       } else if(e.keyCode == 40){
+          y++;
+       }
+       if(hitCheck()){
+          x = sx;
+          y = sy;
+       }
+       putBlock();
+    }
+}
+
+// スタートボタン
+$('#startBtn').click(function(){
+    $('#cover').animate({opacity: 0}, 500, function(){
+        $(this).remove();
+    });
+    init();
+    newGame();
+});
+
+// ゲームオーバーボタン
+$('#gameOver').click(function(){
+    location.reload();
+});
+    
+// BGMのオン/オフ
+$('#audioBtn').click(function(){
+if(audio_switch == 1){
+  audio_switch = 2  
+};
+})
+
+</script>
+
+</body>
+</html>
